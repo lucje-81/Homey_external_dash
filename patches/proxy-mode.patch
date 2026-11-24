@@ -1,0 +1,78 @@
+diff --git a/assets/web/js/main.js b/assets/web/js/main.js
+index a07dad5..601343f 100644
+--- a/assets/web/js/main.js
++++ b/assets/web/js/main.js
+@@ -301,6 +301,13 @@ function isRevokedKey(error) {
+   return servedByHomey && error.status === 401;
+ }
+ 
++// Behind the Docker proxy a 401 means this browser's session ran out: sign in again.
++function signInAgain(error) {
++  if (state.config?.proxy !== true || error?.status !== 401) return false;
++  location.assign('/login');
++  return true;
++}
++
+ function pairAgain() {
+   writeStoredConfig({});
+   state.config = { ...state.config, token: undefined };
+@@ -361,6 +368,7 @@ async function boot() {
+     settleKioskHome();
+     $('edit-button').hidden = false;
+   } catch (error) {
++    if (signInAgain(error)) return;
+     if (isRevokedKey(error)) return pairAgain();
+     setStatus('error', 'Not connected');
+     openSetup(`Could not reach Homey: ${error.message}`);
+diff --git a/assets/web/js/widget-modes.js b/assets/web/js/widget-modes.js
+index abbfd5a..f469f64 100644
+--- a/assets/web/js/widget-modes.js
++++ b/assets/web/js/widget-modes.js
+@@ -1,7 +1,8 @@
+ // How each app widget runs, chosen in its settings (sheets/widget-settings.js) and kept by the app, so every browser
+ // runs it the same way: 'sandboxed' (the default: an opaque origin without storage, so it can't read the API key this
+ // page keeps), 'storage' (sandboxed, with localStorage kept by this page, see widget-storage.js) or 'trusted' (no
+-// sandbox, as in the Homey app; it could read the API key). Only when served by the app; otherwise all are sandboxed.
++// sandbox, as in the Homey app; it could read the API key). Only when served by the app or by the Docker proxy
++// (config.json `proxy: true`, which keeps the modes itself); otherwise all are sandboxed.
+ 
+ import { APP_ID, servedByHomey } from './config.js';
+ import { subscribe } from './realtime.js';
+@@ -20,27 +21,31 @@ function apply(next) {
+   if (changed.length > 0) onChange(changed);
+ }
+ 
+-export const canChooseWidgetMode = () => servedByHomey;
++const proxied = () => state.config?.proxy === true;
++const modesPath = () => (proxied() ? '/local/widget-modes' : `/api/app/${APP_ID}/widget-modes`);
++const modesUri = () => (proxied() ? 'homey:local:webdashboard' : `homey:app:${APP_ID}`);
++
++export const canChooseWidgetMode = () => servedByHomey || proxied();
+ 
+ export function widgetMode(widgetId) {
+   return modes[widgetId] ?? WIDGET_MODES[0];
+ }
+ 
+ export async function loadWidgetModes() {
+-  if (!servedByHomey) return;
+-  modes = (await state.client.api('GET', `/api/app/${APP_ID}/widget-modes`).catch(() => null)) ?? modes;
++  if (!canChooseWidgetMode()) return;
++  modes = (await state.client.api('GET', modesPath()).catch(() => null)) ?? modes;
+ }
+ 
+ // handler gets the ids of the widgets whose mode changed.
+ export function watchWidgetModes(handler) {
+-  if (!servedByHomey) return;
++  if (!canChooseWidgetMode()) return;
+   onChange = handler;
+-  subscribe(`homey:app:${APP_ID}`, 'widget-modes', apply);
++  subscribe(modesUri(), 'widget-modes', apply);
+ }
+ 
+ // Needs a key that may change dashboards (homey.dashboard), like the widget's other settings.
+ export async function saveWidgetMode(widgetId, mode) {
+-  apply(await state.client.api('PUT', `/api/app/${APP_ID}/widget-modes/${encodeURIComponent(widgetId)}`, {
++  apply(await state.client.api('PUT', `${modesPath()}/${encodeURIComponent(widgetId)}`, {
+     token: state.client.token,
+     mode,
+   }));

@@ -1,0 +1,11 @@
+services:
+  homey-dashboard:
+    build: .
+    image: homey-web-dashboard:local
+    container_name: homey-dashboard
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"   # links: poort op je pc, rechts: poort in de container
+    volumes:
+      - ./data:/data  # sessiesleutel en widgetmodi
