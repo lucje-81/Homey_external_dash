@@ -47,6 +47,11 @@ if (!/^https?:\/\/[^/]+$/.test(config.homeyUrl)) fail('HOMEY_URL ontbreekt of is
 if (!config.token) fail('HOMEY_TOKEN (de API-sleutel) ontbreekt.');
 if (!fs.existsSync(path.join(config.publicDir, 'index.html'))) fail(`Geen frontend gevonden in ${config.publicDir}.`);
 fs.mkdirSync(config.dataDir, { recursive: true });
+try {
+  fs.accessSync(config.dataDir, fs.constants.W_OK);
+} catch {
+  fail(`Kan niet schrijven in ${config.dataDir}. Geef de map op je pc aan gebruiker 1000: chown 1000:1000 data`);
+}
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 

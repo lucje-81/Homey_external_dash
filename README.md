@@ -77,6 +77,8 @@ curl -H "Authorization: Bearer <sleutel>" <HOMEY_URL>/api/manager/system/
 
   Je keuze wordt in `./data/widget-modes.json` bewaard en geldt voor alle schermen.
 - **Alle browsers afmelden:** wis `./data/session-secret` en herstart (`docker compose restart`).
+- **Fout `EACCES: permission denied` op `/data`:** met deze versie past de container de rechten van `./data` zelf aan.
+  Bij een oudere versie: `chown 1000:1000 data` en `docker compose restart`.
 - **Gezondheid:** `http://<ip>:8080/healthz` toont of de verbinding met Homey er is.
 
 ## Beveiliging

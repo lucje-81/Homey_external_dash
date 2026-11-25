@@ -14,15 +14,17 @@ COPY patches/ /patches/
 RUN for patch in /patches/*.patch; do git apply --verbose "$patch"; done
 
 FROM node:22-alpine
+RUN apk add --no-cache su-exec
 ENV NODE_ENV=production PORT=8080 DATA_DIR=/data PUBLIC_DIR=/app/public
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
-COPY server.js ./
+COPY server.js docker-entrypoint.sh ./
 COPY --from=frontend /src/assets/web ./public
 COPY --from=frontend /src/LICENSE ./public/LICENSE-web-dashboard.txt
 RUN mkdir -p /data && chown node:node /data
-USER node
+# Starts as root only to fix the ownership of /data, then runs as "node" (see docker-entrypoint.sh).
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
