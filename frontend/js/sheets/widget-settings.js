@@ -23,7 +23,7 @@ import { zoneIcon, zoneOrder } from '../zones.js';
 const MODES = {
   sandboxed: {
     title: 'Sandboxed',
-    hint: "Runs sealed off from this page, so it can't read the API key. It has no storage, which some widgets need "
+    hint: "Runs sealed off from this page, so it can only reach its own app. It has no storage, which some widgets need "
       + 'to work.',
   },
   storage: {
@@ -33,7 +33,7 @@ const MODES = {
   },
   trusted: {
     title: 'Trusted',
-    hint: 'Runs as in the Homey app, not sealed off. It can read the API key every paired browser uses, so only choose '
+    hint: 'Runs as in the Homey app, not sealed off. It can do everything the API key on the server may, so only choose '
       + 'this for an app you trust.',
   },
 };

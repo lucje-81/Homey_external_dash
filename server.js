@@ -36,6 +36,7 @@ const config = {
   dataDir: process.env.DATA_DIR || '/data',
   publicDir: process.env.PUBLIC_DIR || path.join(__dirname, 'public'),
   insecureTls: process.env.HOMEY_INSECURE_TLS === 'true',
+  language: (process.env.DASHBOARD_LANGUAGE || '').trim().toLowerCase(),
 };
 
 function fail(message) {
@@ -461,7 +462,12 @@ async function handle(req, res) {
   // placeholder (the real key is added by the proxy). `proxy: true` turns on widget modes kept by this server.
   if (pathname === '/config.json') {
     if (!isAuthenticated(req)) return send(res, 401, { error: 'Niet aangemeld' });
-    return send(res, 200, { homeyUrl: requestOrigin(req), token: 'proxy', proxy: true });
+    return send(res, 200, {
+      homeyUrl: requestOrigin(req),
+      token: 'proxy',
+      proxy: true,
+      ...(config.language ? { language: config.language } : {}),
+    });
   }
 
   if (pathname.startsWith('/local/')) return handleLocal(req, res, pathname);

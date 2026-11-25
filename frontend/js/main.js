@@ -4,6 +4,7 @@ import { APP_ID, loadConfig, servedByHomey, writeStoredConfig } from './config.j
 import { isSaving, loadKeyScopes } from './dashboard-save.js';
 import { initEditMode } from './edit-mode.js';
 import { dashboardMenuItems } from './edit-extra.js';
+import { startDomTranslation } from './i18n-dom.js';
 import { canEditDashboards } from './dashboard-save.js';
 import { initFit, isFit, setFit } from './fit.js';
 import { $, darkQuery, el } from './dom.js';
@@ -319,6 +320,8 @@ function pairAgain() {
 
 async function boot() {
   state.config = await loadConfig();
+  // A language set on the server (DASHBOARD_LANGUAGE) applies straight away; otherwise the Homey's, once known.
+  if (state.config?.language) startDomTranslation();
   if (!state.config.homeyUrl || !state.config.token) {
     setStatus('offline', 'Not connected');
     openSetup();
@@ -366,6 +369,7 @@ async function boot() {
       loadWidgetModes(),
     ]);
     state.system = system;
+    startDomTranslation();
     await refreshAll();
     settleKioskHome();
     $('edit-button').hidden = false;
