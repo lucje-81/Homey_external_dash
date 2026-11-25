@@ -61,13 +61,17 @@
         <input id="setup-url" name="homeyUrl" type="url" required placeholder="https://192-168-1-2.homey.homeylocal.com">
         <p>Use the HTTPS <code>*.homey.homeylocal.com</code> address so the browser allows the connection.</p>
       </div>
-      <label for="setup-token">API key</label>
-      <input id="setup-token" name="token" type="password" required autocomplete="off">
-      <p>Create one in my.homey.app under Settings → API Keys. It is stored only in this browser.</p>
+      <div id="setup-token-group">
+        <label for="setup-token">API key</label>
+        <input id="setup-token" name="token" type="password" required autocomplete="off">
+        <p>Create one in my.homey.app under Settings → API Keys. It is stored only in this browser.</p>
+      </div>
       <div id="setup-screen" hidden>
         <label>This screen</label>
-        <p><strong id="screen-name"></strong>. Flow cards can highlight a widget or show a dashboard on this screen by
+        <p id="screen-app-hint"><strong id="screen-name"></strong>. Flow cards can highlight a widget or show a dashboard on this screen by
           that name. Rename it in the Homey app: Apps → Web Dashboard → Configure.</p>
+        <input id="screen-rename" type="text" maxlength="60" autocomplete="off" data-no-i18n hidden>
+        <p id="screen-proxy-hint" hidden>A Homey flow can show a dashboard or highlight a widget on this screen by this name (see the README, "Flows").</p>
       </div>
       <div id="setup-layout" hidden>
         <label class="switch-row" for="fit-toggle">
@@ -92,6 +96,7 @@
       </div>
       <div class="actions">
         <button id="setup-forget" class="round-button" type="button">Forget</button>
+        <a id="setup-signout" class="round-button" href="/logout" hidden>Sign out</a>
         <button id="setup-done" class="round-button" type="button" hidden>Done</button>
         <button class="round-button primary" type="submit">Connect</button>
       </div>

@@ -3,7 +3,7 @@
 // the app's settings in the Homey app. A browser without storage (private mode) has no id and only follows flow cards
 // aimed at all screens. Only when served by the app.
 
-import { APP_ID, servedByHomey } from './config.js';
+import { appPath, appUri, bridged } from './app-bridge.js';
 import { subscribe } from './realtime.js';
 import { STORAGE_KEY, state } from './state.js';
 
@@ -54,9 +54,9 @@ export function browserName() {
 // Tells the app this screen is here (it adds one it doesn't know yet) and learns its name. On load and after
 // reconnecting.
 export async function registerScreen() {
-  if (!servedByHomey || screenId() == null) return;
+  if (!bridged() || screenId() == null) return;
   try {
-    const { name } = await state.client.api('POST', `/api/app/${APP_ID}/screen-hello`, {
+    const { name } = await state.client.api('POST', appPath('/screen-hello'), {
       token: state.client.token, id: screenId(), name: browserName(),
     });
     state.screenName = name;
@@ -67,8 +67,8 @@ export async function registerScreen() {
 
 // Needs the client and the realtime connection. Keeps the name current when it is changed in the Homey app.
 export function watchScreen() {
-  if (!servedByHomey || screenId() == null) return;
-  subscribe(`homey:app:${APP_ID}`, 'screens', (screens) => {
+  if (!bridged() || screenId() == null) return;
+  subscribe(appUri(), 'screens', (screens) => {
     // Forgotten while open, it has no name until the next load adds it back under its browser name.
     const self = Array.isArray(screens) ? screens.find((screen) => screen.id === screenId()) : null;
     state.screenName = self?.name ?? null;

@@ -308,6 +308,10 @@ export const NL = {
   'This web page has no valid address.': 'Deze webpagina heeft geen geldig adres.',
   'This page refuses to be shown inside another page.': 'Deze pagina weigert binnen een andere pagina getoond te worden.',
 
+  'Sign out': 'Afmelden',
+  'A Homey flow can show a dashboard or highlight a widget on this screen by this name (see the README, "Flows").':
+    'Een Homey-flow kan op dit scherm een dashboard tonen of een widget uitlichten via deze naam (zie de README, "Flows").',
+
   // Flow-koppeling (highlight.js)
   'Highlight a widget': 'Widget uitlichten',
   'Show a dashboard': 'Dashboard tonen',

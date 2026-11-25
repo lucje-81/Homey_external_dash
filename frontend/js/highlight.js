@@ -7,7 +7,7 @@
 // usual column width and zoomed to fit (media widgets marked `fill` stretch to the screen instead). Not the browser's
 // full-screen mode: that needs a tap. Only when served by the app.
 
-import { APP_ID, servedByHomey } from './config.js';
+import { appPath, appUri, bridged } from './app-bridge.js';
 import { loadData } from './data.js';
 import { $, el } from './dom.js';
 import { CLOSE_ICON } from './icons.js';
@@ -154,10 +154,10 @@ function setCurrent(highlight) {
 
 // On load and after reconnecting: the app may have changed it while this page wasn't listening.
 export async function fetchHighlight() {
-  if (!servedByHomey) return;
+  if (!bridged()) return;
   try {
     const query = screenId() ? `?screen=${encodeURIComponent(screenId())}` : '';
-    const { highlight } = await state.client.api('GET', `/api/app/${APP_ID}/highlight${query}`);
+    const { highlight } = await state.client.api('GET', appPath(`/highlight${query}`));
     setCurrent(highlight);
   } catch (error) {
     console.info(`Highlight: ${error.message}`);
@@ -170,13 +170,13 @@ function closeEverywhere() {
   current = null;
   hide();
   if (closed == null) return;
-  state.client.api('POST', `/api/app/${APP_ID}/highlight/close`, { token: state.client.token, id: closed.id })
+  state.client.api('POST', appPath('/highlight/close'), { token: state.client.token, id: closed.id })
     .catch((error) => console.info(`Highlight: closing failed: ${error.message}`));
 }
 
 // Needs the client and the realtime connection.
 export function watchHighlight() {
-  if (!servedByHomey) return;
+  if (!bridged()) return;
   closeButton.innerHTML = CLOSE_ICON;
   closeButton.addEventListener('click', closeEverywhere);
   // Unless a sheet opened from the widget is on top: Escape closes that.
@@ -189,6 +189,6 @@ export function watchHighlight() {
   addEventListener('resize', fit);
 
   // Every screen's highlight; a browser without a screen id shows the one for all screens.
-  subscribe(`homey:app:${APP_ID}`, 'highlight', (data) => setCurrent(data?.highlights?.[screenId() ?? 'all']));
+  subscribe(appUri(), 'highlight', (data) => setCurrent(data?.highlights?.[screenId() ?? 'all']));
   fetchHighlight();
 }

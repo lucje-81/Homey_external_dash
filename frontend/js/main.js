@@ -5,6 +5,7 @@ import { isSaving, loadKeyScopes } from './dashboard-save.js';
 import { initEditMode } from './edit-mode.js';
 import { dashboardMenuItems } from './edit-extra.js';
 import { startDomTranslation } from './i18n-dom.js';
+import { appUri } from './app-bridge.js';
 import { canEditDashboards } from './dashboard-save.js';
 import { initFit, isFit, setFit } from './fit.js';
 import { $, darkQuery, el } from './dom.js';
@@ -115,8 +116,8 @@ function watchHomey() {
   });
   // The "Show a dashboard" flow card, for every screen or this one. A kiosk tablet counts it as a touch, so it stays
   // two minutes before going home.
-  if (servedByHomey) {
-    state.realtime.on(`homey:app:${APP_ID}`, 'show-dashboard', (data) => {
+  if (servedByHomey || state.config?.proxy === true) {
+    state.realtime.on(appUri(), 'show-dashboard', (data) => {
       if (data?.screenId !== 'all' && data?.screenId !== screenId()) return;
       resetIdle();
       showDashboard(data?.dashboardId);
@@ -216,6 +217,24 @@ function openSetup(errorText) {
   $('setup-token').value = config.token ?? '';
   $('setup-error').hidden = !errorText;
   $('setup-error').textContent = errorText ?? '';
+  // Behind the Docker proxy the server holds the key: this is only the browser's own settings.
+  const proxy = config.proxy === true;
+  $('setup-token-group').hidden = proxy;
+  $('setup-token').required = !proxy;
+  if (proxy) {
+    $('setup-url-group').hidden = true;
+    $('setup-url').required = false;
+    $('setup-title').textContent = 'Settings';
+    $('setup-done').hidden = false;
+    $('setup-forget').hidden = true;
+    $('setup-form').querySelector('button[type="submit"]').hidden = true;
+    $('setup-signout').hidden = config.signIn !== true;
+    $('screen-app-hint').hidden = true;
+    $('screen-proxy-hint').hidden = false;
+    $('screen-rename').hidden = false;
+    $('screen-rename').value = state.screenName ?? '';
+    $('setup-screen').hidden = !connected || screenId() == null;
+  }
   if (location.protocol === 'https:' && config.homeyUrl?.startsWith('http:')) {
     $('setup-error').hidden = false;
     $('setup-error').textContent = 'This page is served over HTTPS, so the Homey address must use HTTPS too.';
@@ -223,7 +242,17 @@ function openSetup(errorText) {
   if (!$('setup').open) $('setup').showModal();
 }
 
-$('setup').addEventListener('close', () => pairing.stop());
+$('setup').addEventListener('close', () => {
+  pairing.stop();
+  // A new name for this screen (Docker proxy), saved on the server.
+  const name = $('screen-rename').value.trim();
+  if (state.config?.proxy !== true || $('screen-rename').hidden || !name || name === state.screenName || screenId() == null) return;
+  state.client.api('PUT', `/local/screens/${screenId()}`, { name })
+    .then(() => {
+      state.screenName = name;
+    })
+    .catch((error) => console.info(`Screen: ${error.message}`));
+});
 $('setup-done').addEventListener('click', () => $('setup').close());
 $('fit-toggle').addEventListener('change', (event) => setFit(event.target.checked));
 // Kiosk mode: this browser always shows the chosen dashboard. Turning it on shows the result straight away;

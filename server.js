@@ -501,9 +501,229 @@ async function handleFrame(req, res, searchParams, info) {
   res.end(body);
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Screens and flows: each browser registers as a screen (its own random id, a name you can change in its Settings).
+// A Homey flow can show a dashboard or highlight a widget on one screen or all of them, with an HTTP request to
+// /flow/... carrying the flow key (FLOW_KEY, or the one generated in /data/flow-key). What the screens show is announced
+// to them over the realtime connection.
+
+const ALL_SCREENS = 'all';
+let screens = readJson('screens.json', {}); // id → { name, lastSeen }
+const highlights = new Map(); // screen id or 'all' → highlight
+const highlightTimers = new Map(); // highlight id → timer
+
+const flowKey = (() => {
+  if (process.env.FLOW_KEY) return process.env.FLOW_KEY.trim();
+  const file = path.join(config.dataDir, 'flow-key');
+  try {
+    return fs.readFileSync(file, 'utf8').trim();
+  } catch {
+    const key = crypto.randomBytes(12).toString('base64url');
+    fs.writeFileSync(file, key, { mode: 0o600 });
+    return key;
+  }
+})();
+
+const validScreenId = (id) => typeof id === 'string' && /^[0-9a-f]{32}$/.test(id);
+const cleanName = (name) => (typeof name === 'string' && name.trim() ? name.trim().slice(0, 60) : null);
+const norm = (text) => String(text ?? '').trim().toLowerCase();
+
+function listScreens() {
+  return Object.entries(screens).map(([id, screen]) => ({ id, ...screen })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function saveScreens() {
+  writeJson('screens.json', screens);
+  realtimeNamespace.to(LOCAL_URI).emit(LOCAL_URI, 'screens', listScreens());
+}
+
+function announceHighlights() {
+  realtimeNamespace.to(LOCAL_URI).emit(LOCAL_URI, 'highlight', { highlights: Object.fromEntries(highlights) });
+}
+
+// "all", a screen's id or its name.
+function screenTarget(value) {
+  const wanted = norm(value);
+  if (!wanted || wanted === ALL_SCREENS || wanted === 'alle') return ALL_SCREENS;
+  if (screens[value]) return value;
+  const found = Object.entries(screens).find(([, screen]) => norm(screen.name) === wanted);
+  if (found == null) throw Object.assign(new Error(`Geen scherm met de naam "${value}". Bekende schermen: ${listScreens().map((screen) => screen.name).join(', ') || 'geen'}`), { status: 404 });
+  return found[0];
+}
+
+async function findDashboard(value) {
+  const dashboards = await homeyGet('/api/manager/dashboards/dashboard');
+  const wanted = norm(value);
+  const dashboard = dashboards[value] ?? Object.values(dashboards).find((candidate) => norm(candidate.name) === wanted);
+  if (dashboard == null) throw Object.assign(new Error(`Geen dashboard "${value}". Dashboards: ${Object.values(dashboards).map((candidate) => candidate.name).join(', ')}`), { status: 404 });
+  return dashboard;
+}
+
+// A widget by id, by its title, or by the device or zone it shows, as the Homey app names it.
+async function findWidget(dashboard, value) {
+  const widgets = (dashboard.columns ?? []).flatMap((column) => column.widgets ?? []);
+  const byId = widgets.find((widget) => widget.id === value);
+  if (byId) return { widget: byId, name: byId.title || value };
+  const [devices, zones] = await Promise.all([
+    homeyGet('/api/manager/devices/device').catch(() => ({})),
+    homeyGet('/api/manager/zones/zone').catch(() => ({})),
+  ]);
+  const named = widgets.map((widget) => {
+    const data = widget.data ?? {};
+    const subject = devices[data.deviceId ?? data.cameraId ?? data.lightId ?? data.speakerId]?.name ?? zones[data.zoneId]?.name;
+    return { widget, name: widget.title || subject || widget.type };
+  });
+  const wanted = norm(value);
+  const found = named.find((candidate) => norm(candidate.name) === wanted)
+    ?? named.find((candidate) => norm(candidate.name).includes(wanted));
+  if (found == null) throw Object.assign(new Error(`Geen widget "${value}" op ${dashboard.name}. Widgets: ${named.map((candidate) => candidate.name).join(', ')}`), { status: 404 });
+  return found;
+}
+
+function closeHighlight(id, closedBy) {
+  const closing = [...highlights].filter(([, highlight]) => highlight.id === id);
+  if (closing.length === 0) return false;
+  for (const [screenId] of closing) highlights.delete(screenId);
+  clearTimeout(highlightTimers.get(id));
+  highlightTimers.delete(id);
+  log(`Uitlichten van ${closing[0][1].name} gesloten (${closedBy})`);
+  announceHighlights();
+  return true;
+}
+
+async function flowShowDashboard(params) {
+  const target = screenTarget(params.get('screen'));
+  const dashboard = await findDashboard(params.get('dashboard'));
+  realtimeNamespace.to(LOCAL_URI).emit(LOCAL_URI, 'show-dashboard', { dashboardId: dashboard.id, screenId: target });
+  log(`Flow: dashboard ${dashboard.name} op ${target === ALL_SCREENS ? 'alle schermen' : screens[target].name}`);
+  return { ok: true, dashboard: dashboard.name };
+}
+
+async function flowHighlight(params) {
+  const target = screenTarget(params.get('screen'));
+  const dashboard = await findDashboard(params.get('dashboard'));
+  const { widget, name } = await findWidget(dashboard, params.get('widget'));
+  const highlight = {
+    id: crypto.randomBytes(8).toString('hex'),
+    target,
+    dashboardId: dashboard.id,
+    widgetId: widget.id,
+    name,
+    dashboardName: dashboard.name,
+    size: norm(params.get('size')) === 'fullscreen' || norm(params.get('size')) === 'volledig' ? 'fullscreen' : 'large',
+  };
+  const replaced = new Set([...highlights.values()].map((shown) => shown.id));
+  if (target === ALL_SCREENS) {
+    highlights.clear();
+    for (const id of [ALL_SCREENS, ...Object.keys(screens)]) highlights.set(id, highlight);
+  } else {
+    highlights.set(target, highlight);
+  }
+  const still = new Set([...highlights.values()].map((shown) => shown.id));
+  for (const id of replaced) {
+    if (!still.has(id)) {
+      clearTimeout(highlightTimers.get(id));
+      highlightTimers.delete(id);
+    }
+  }
+  const seconds = Number(params.get('seconds'));
+  if (seconds > 0) highlightTimers.set(highlight.id, setTimeout(() => closeHighlight(highlight.id, 'timer'), Math.min(seconds, 86400) * 1000));
+  log(`Flow: ${name} uitgelicht op ${target === ALL_SCREENS ? 'alle schermen' : screens[target].name}`);
+  announceHighlights();
+  return { ok: true, widget: name, dashboard: dashboard.name };
+}
+
+function flowCloseHighlight(params) {
+  const target = screenTarget(params.get('screen'));
+  const ids = target === ALL_SCREENS ? [...new Set([...highlights.values()].map((highlight) => highlight.id))] : [highlights.get(target)?.id];
+  let closed = 0;
+  for (const id of ids) if (id && closeHighlight(id, 'flow')) closed += 1;
+  return { ok: true, closed };
+}
+
+async function handleFlow(req, res, pathname, searchParams) {
+  const params = new URLSearchParams(searchParams);
+  // Also as a POST with a JSON or form body (the HTTP request card's body).
+  if (req.method === 'POST') {
+    const text = await readBody(req, 8192).catch(() => '');
+    let extra = {};
+    try {
+      extra = text.trim().startsWith('{') ? JSON.parse(text) : Object.fromEntries(new URLSearchParams(text));
+    } catch {
+      // Ignore an unreadable body; the query may have it all.
+    }
+    for (const [key, value] of Object.entries(extra)) if (value != null) params.set(key, String(value));
+  } else if (req.method !== 'GET') {
+    return send(res, 405, { error: 'GET of POST' });
+  }
+  const given = params.get('key') ?? String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  if (!given || !safeEqual(given, flowKey)) return send(res, 401, { error: 'Verkeerde of ontbrekende flow-sleutel (key)' });
+  try {
+    if (pathname === '/flow/show-dashboard') return send(res, 200, await flowShowDashboard(params));
+    if (pathname === '/flow/highlight') return send(res, 200, await flowHighlight(params));
+    if (pathname === '/flow/close-highlight') return send(res, 200, flowCloseHighlight(params));
+    if (pathname === '/flow/screens') return send(res, 200, listScreens());
+    return send(res, 404, { error: 'Onbekende flow-actie' });
+  } catch (error) {
+    log(`Flow ${pathname}: ${error.message}`);
+    return send(res, error.status ?? 502, { error: error.message });
+  }
+}
+
+async function handleScreens(req, res, pathname) {
+  if (pathname === '/local/highlight' && req.method === 'GET') {
+    const id = new URL(req.url, 'http://local').searchParams.get('screen');
+    const known = validScreenId(id) && screens[id] != null;
+    return send(res, 200, { highlight: highlights.get(known ? id : ALL_SCREENS) ?? null });
+  }
+  if (!['POST', 'PUT'].includes(req.method)) return send(res, 405, { error: 'Method not allowed' });
+  if (!req.headers.authorization || !isSameOrigin(req)) return send(res, 403, { error: 'Forbidden' });
+  let body;
+  try {
+    body = JSON.parse((await readBody(req, 4096)) || '{}');
+  } catch {
+    return send(res, 400, { error: 'Ongeldige JSON' });
+  }
+  if (pathname === '/local/highlight/close') {
+    if (body.id != null) closeHighlight(String(body.id), 'screen');
+    return send(res, 200, {});
+  }
+  if (pathname === '/local/screen-hello') {
+    if (!validScreenId(body.id)) return send(res, 400, { error: 'Ongeldig scherm-id' });
+    let screen = screens[body.id];
+    if (screen == null) {
+      screen = { name: cleanName(body.name) ?? 'Browser', lastSeen: Date.now() };
+      screens = { ...screens, [body.id]: screen };
+      log(`Nieuw scherm: ${screen.name}`);
+      saveScreens();
+    } else if (Date.now() - screen.lastSeen > 3600000) {
+      screens = { ...screens, [body.id]: { ...screen, lastSeen: Date.now() } };
+      writeJson('screens.json', screens);
+    }
+    const everywhere = highlights.get(ALL_SCREENS);
+    if (everywhere != null && !highlights.has(body.id)) {
+      highlights.set(body.id, everywhere);
+      announceHighlights();
+    }
+    return send(res, 200, { name: screens[body.id].name });
+  }
+  const rename = pathname.match(/^\/local\/screens\/([0-9a-f]{32})$/);
+  if (rename) {
+    const name = cleanName(body.name);
+    if (screens[rename[1]] == null || name == null) return send(res, 400, { error: 'Onbekend scherm of lege naam' });
+    screens = { ...screens, [rename[1]]: { ...screens[rename[1]], name } };
+    saveScreens();
+    return send(res, 200, { name });
+  }
+  return send(res, 404, { error: 'Not found' });
+}
+
 async function handleLocal(req, res, pathname) {
   if (!isAuthenticated(req)) return send(res, 401, { error: 'Niet aangemeld' });
   if (pathname === '/local/widget-modes' && req.method === 'GET') return send(res, 200, widgetModes);
+  if (pathname === '/local/screens' && req.method === 'GET') return send(res, 200, listScreens());
+  if (pathname === '/local/highlight' || pathname === '/local/highlight/close' || pathname === '/local/screen-hello'
+    || pathname.startsWith('/local/screens/')) return handleScreens(req, res, pathname);
   if (pathname === '/local/frame' && req.method === 'GET') return handleFrame(req, res, new URL(req.url, 'http://local').searchParams, false);
   if (pathname === '/local/frame-info' && req.method === 'GET') return handleFrame(req, res, new URL(req.url, 'http://local').searchParams, true);
 
@@ -595,11 +815,13 @@ async function handle(req, res) {
       homeyUrl: requestOrigin(req),
       token: 'proxy',
       proxy: true,
+      signIn: Boolean(config.password),
       ...(config.language ? { language: config.language } : {}),
     });
   }
 
   if (pathname.startsWith('/local/')) return handleLocal(req, res, pathname);
+  if (pathname.startsWith('/flow/')) return handleFlow(req, res, pathname, new URL(req.url, 'http://local').searchParams);
 
   if (pathname === '/api' || pathname.startsWith('/api/')) {
     if (!isAuthenticated(req)) return send(res, 401, { error: 'Niet aangemeld' });
@@ -687,6 +909,7 @@ homey.on('down', () => {
 server.listen(config.port, () => {
   log(`Homey Web Dashboard op poort ${config.port} → ${config.homeyUrl}`);
   if (!config.password) log('Let op: geen DASHBOARD_PASSWORD ingesteld; iedereen op je netwerk kan het dashboard openen en bedienen.');
+  log(`Flow-sleutel (voor /flow/...): ${flowKey}`);
   homey.start();
 });
 
