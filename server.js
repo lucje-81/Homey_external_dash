@@ -15,6 +15,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
+const https = require('node:https');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 
@@ -374,9 +375,137 @@ const LOCAL_URI = 'homey:local:webdashboard';
 const WIDGET_MODES = ['sandboxed', 'storage', 'trusted'];
 let widgetModes = readJson('widget-modes.json', {});
 
+// ---------------------------------------------------------------------------------------------------------------
+// Web frames: pages that refuse to be shown in a frame (X-Frame-Options, CSP frame-ancestors) are fetched here and
+// passed on without those headers. Only addresses that a Web frame widget on one of the dashboards shows, so this is
+// no open proxy. The page is served sandboxed (no access to this origin, its cookies or the Homey API); its own
+// images, scripts and links still load from the original site (<base href>).
+
+function homeyGet(pathname) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(pathname, config.homeyUrl);
+    const client = url.protocol === 'https:' ? https : http;
+    const req = client.get(url, {
+      headers: { Authorization: `Bearer ${config.token}`, Accept: 'application/json' },
+      rejectUnauthorized: !config.insecureTls,
+      timeout: 15000,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (res.statusCode >= 400) return reject(new Error(`Homey ${res.statusCode}: ${text.slice(0, 200)}`));
+        try {
+          resolve(JSON.parse(text));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
+}
+
+let frameUrls = { at: 0, urls: new Set() };
+
+async function frameAllowed(href) {
+  const age = Date.now() - frameUrls.at;
+  if (age < 15000 && frameUrls.urls.has(href)) return true;
+  // A widget added just now isn't known yet: ask Homey again, but not more than every 2 seconds.
+  if (age >= 2000) {
+    const dashboards = await homeyGet('/api/manager/dashboards/dashboard');
+    const urls = new Set();
+    for (const dashboard of Object.values(dashboards ?? {})) {
+      for (const column of dashboard.columns ?? []) {
+        for (const widget of column.widgets ?? []) {
+          if (widget.type !== 'web_frame') continue;
+          try {
+            urls.add(new URL(widget.data?.url).href);
+          } catch {
+            // Not a valid address; the widget says so itself.
+          }
+        }
+      }
+    }
+    frameUrls = { at: Date.now(), urls };
+  }
+  return frameUrls.urls.has(href);
+}
+
+const FRAME_TIMEOUT = 15000;
+const FRAME_LIMIT = 15 * 1024 * 1024;
+
+async function fetchPage(href, method = 'GET') {
+  return fetch(href, {
+    method,
+    redirect: 'follow',
+    signal: AbortSignal.timeout(FRAME_TIMEOUT),
+    headers: { 'User-Agent': 'Mozilla/5.0 (Homey Web Dashboard)', Accept: 'text/html,*/*;q=0.8' },
+  });
+}
+
+function refusesFraming(headers) {
+  const xfo = headers.get('x-frame-options');
+  const csp = headers.get('content-security-policy') ?? '';
+  const ancestors = csp.split(';').map((part) => part.trim()).find((part) => part.toLowerCase().startsWith('frame-ancestors'));
+  return Boolean(xfo) || (ancestors != null && !/frame-ancestors\s+\*\s*$/i.test(ancestors));
+}
+
+async function handleFrame(req, res, searchParams, info) {
+  let href;
+  try {
+    href = new URL(searchParams.get('url') ?? '').href;
+  } catch {
+    return send(res, 400, { error: 'Ongeldig adres' });
+  }
+  if (!/^https?:$/.test(new URL(href).protocol)) return send(res, 400, { error: 'Alleen http en https' });
+  try {
+    if (!(await frameAllowed(href))) return send(res, 403, { error: 'Dit adres staat in geen enkele Web frame-widget' });
+  } catch (error) {
+    return send(res, 502, { error: `Homey niet bereikbaar: ${error.message}` });
+  }
+
+  let upstream;
+  try {
+    upstream = await fetchPage(href);
+  } catch (error) {
+    if (info) return send(res, 200, { reachable: false, refuses: false, error: error.cause?.message ?? error.message });
+    const reason = String(error.cause?.message ?? error.message).replace(/[<>&]/g, '');
+    return send(res, 502, `<!DOCTYPE html><meta charset="utf-8"><body style="font:15px system-ui;padding:16px;color:#888">De pagina kon niet geladen worden: ${reason}</body>`);
+  }
+  if (info) {
+    upstream.body?.cancel().catch(() => {});
+    return send(res, 200, { reachable: true, refuses: refusesFraming(upstream.headers) });
+  }
+
+  const type = upstream.headers.get('content-type') ?? 'application/octet-stream';
+  const length = Number(upstream.headers.get('content-length') ?? 0);
+  if (length > FRAME_LIMIT) return send(res, 413, { error: 'Pagina te groot' });
+  let body = Buffer.from(await upstream.arrayBuffer());
+  if (body.length > FRAME_LIMIT) return send(res, 413, { error: 'Pagina te groot' });
+  if (type.includes('text/html')) {
+    // Relative addresses resolve against the original page (after redirects), not against this server.
+    const base = `<base href="${upstream.url.replace(/"/g, '%22')}">`;
+    const html = body.toString('utf8');
+    body = Buffer.from(/<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => `${head}${base}`) : `${base}${html}`);
+  }
+  res.writeHead(upstream.status, {
+    'Content-Type': type,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    // Even opened on its own, the page runs without this origin's rights.
+    'Content-Security-Policy': 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox',
+    'Referrer-Policy': 'no-referrer',
+  });
+  res.end(body);
+}
+
 async function handleLocal(req, res, pathname) {
   if (!isAuthenticated(req)) return send(res, 401, { error: 'Niet aangemeld' });
   if (pathname === '/local/widget-modes' && req.method === 'GET') return send(res, 200, widgetModes);
+  if (pathname === '/local/frame' && req.method === 'GET') return handleFrame(req, res, new URL(req.url, 'http://local').searchParams, false);
+  if (pathname === '/local/frame-info' && req.method === 'GET') return handleFrame(req, res, new URL(req.url, 'http://local').searchParams, true);
 
   const match = pathname.match(/^\/local\/widget-modes\/([^/]+)$/);
   if (match && req.method === 'PUT') {

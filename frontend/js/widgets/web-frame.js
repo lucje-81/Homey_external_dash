@@ -5,6 +5,21 @@
 // frame-ancestors (Google, for one) refuse to be framed at all, which no attribute here can change.
 
 import { el, note } from '../dom.js';
+import { state } from '../state.js';
+
+// Behind the Docker proxy, a page that refuses to be framed is fetched by the server and shown from there (server.js,
+// /local/frame), sandboxed. The answer is remembered per address for this page's lifetime.
+const refusals = new Map();
+function refusesFraming(href) {
+  if (state.config?.proxy !== true) return Promise.resolve(false);
+  if (!refusals.has(href)) {
+    refusals.set(href, fetch(`/local/frame-info?url=${encodeURIComponent(href)}`, { credentials: 'same-origin' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((info) => info?.refuses === true)
+      .catch(() => false));
+  }
+  return refusals.get(href);
+}
 
 // height: { type, value }. Without it the frame is square. Type 1 is a fixed height in the app's units, which scale
 // with the column: 200 shows 243 px tall in a 437 px wide column, i.e. as if the column were 360 units wide.
@@ -44,14 +59,22 @@ export function mountWebFrame({ body, widget }) {
     frame.style.top = `${-offset}px`;
     frame.style.height = `calc(100% + ${offset}px)`;
   }
-  frame.src = url.href;
+  let source = url.href;
   box.append(frame);
   body.append(box);
+  refusesFraming(url.href).then((refuses) => {
+    if (refuses) {
+      source = `/local/frame?url=${encodeURIComponent(url.href)}`;
+      // Served from this origin, so it must not get this origin's rights.
+      frame.setAttribute('sandbox', sandbox.filter((flag) => flag !== 'allow-same-origin').join(' '));
+    }
+    frame.src = source;
+  });
 
   const refresh = data.refresh;
   if (!refresh?.enabled || !(Number(refresh.interval) > 0)) return undefined;
   const timer = setInterval(() => {
-    frame.src = url.href;
+    frame.src = source;
   }, Math.max(10, Number(refresh.interval)) * 1000);
   return () => clearInterval(timer);
 }
