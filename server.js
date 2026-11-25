@@ -266,6 +266,8 @@ class HomeyRealtime extends EventEmitter {
     this.handlers = new Map(); // uri -> listener on the api socket
     this.api = null;
     this.connected = false;
+    this.lastError = null;
+    this.lastErrorAt = 0;
   }
 
   start() {
@@ -278,7 +280,18 @@ class HomeyRealtime extends EventEmitter {
     });
     this.root.on('connect', () => this.handshake());
     this.root.on('disconnect', (reason) => this.setConnected(false, `verbinding verbroken (${reason})`));
-    this.root.on('connect_error', (error) => this.setConnected(false, `kan niet verbinden: ${error.message ?? error}`));
+    this.root.on('connect_error', (error) => {
+      this.setConnected(false, 'kan niet verbinden');
+      // Also while never connected: say why, but not on every retry.
+      const reason = [error.message, error.description?.message ?? error.description, error.context?.statusText]
+        .filter(Boolean)
+        .join(' – ');
+      if (reason !== this.lastError || Date.now() - this.lastErrorAt > 60000) {
+        log(`Realtime: kan niet verbinden met ${config.homeyUrl}: ${reason || error}`);
+        this.lastError = reason;
+        this.lastErrorAt = Date.now();
+      }
+    });
   }
 
   handshake() {
