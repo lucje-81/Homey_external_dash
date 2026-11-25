@@ -6,10 +6,14 @@ import { el, maskIcon, pulse } from '../dom.js';
 import { BACK_ICON, CHEVRON_DOWN } from '../icons.js';
 import { CONTROL_ICONS } from '../icons/control-icons.js';
 import { state } from '../state.js';
+import { EXTRA_PANELS, EXTRA_TAB_LABELS } from './device-panels-extra.js';
+import { t } from '../i18n.js';
 
-const SHEET_COMPONENTS = ['thermostat', 'toggle', 'slider', 'color', 'ternary'];
+const SHEET_COMPONENTS = ['thermostat', 'toggle', 'slider', 'color', 'ternary', 'picker', 'button', 'media', 'sensor', 'battery'];
 
-const SHEET_TAB_LABELS = { thermostat: 'Temperature', toggle: 'Power', slider: 'Level', color: 'Colour', ternary: 'Position' };
+const SHEET_TAB_LABELS = {
+  thermostat: 'Temperature', toggle: 'Power', slider: 'Level', color: 'Colour', ternary: 'Position', ...EXTRA_TAB_LABELS,
+};
 
 const COLOR_PRESETS = {
   color: ['#FF0000', '#FE7023', '#FFC836', '#D4FF42', '#1EFE43', '#12D3FC', '#004EF9', '#E80FF9'],
@@ -102,7 +106,8 @@ export function openDeviceSheet(initialDevice) {
       const tab = el('button', 'sheet-tab');
       tab.type = 'button';
       tab.setAttribute('role', 'tab');
-      tab.setAttribute('aria-label', component.capabilities[0] === 'locked' ? 'Lock' : SHEET_TAB_LABELS[component.id]);
+      tab.setAttribute('aria-label', t(component.capabilities[0] === 'locked' ? 'Lock' : SHEET_TAB_LABELS[component.id]));
+      tab.title = tab.getAttribute('aria-label');
       tab.dataset.component = component.id;
       tab.append(maskIcon(CONTROL_ICONS.tabs[component.id]));
       tab.addEventListener('click', () => show(component));
@@ -319,6 +324,7 @@ function thermostatPanel(body, device, component, refresh) {
 }
 
 const SHEET_PANELS = {
+  ...EXTRA_PANELS,
   thermostat: thermostatPanel,
 
   toggle(body, device, component, refresh) {

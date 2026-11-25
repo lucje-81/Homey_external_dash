@@ -108,7 +108,7 @@ html.kiosk, .kiosk body { overscroll-behavior: none; }
 .column { flex: 0 0 var(--column-width); display: flex; flex-direction: column; gap: 28px; min-width: 0; scroll-snap-align: start; }
 /* Auto margins centre the columns when they fit and collapse to zero when they overflow. */
 .column:first-child { margin-left: auto; }
-.column:last-child { margin-right: auto; }
+.column:last-child, .column:has(+ .column-add) { margin-right: auto; }
 .widget { min-width: 0; }
 .widget-title { margin: 0 0 12px; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
 
@@ -199,3 +199,25 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .widget-menu > button svg { flex: none; width: 22px; height: 22px; }
 .widget-menu .is-danger { color: var(--danger); }
 .widget-menu .is-confirming { font-weight: 600; }
+
+/* Edit mode additions (js/edit-extra.js): add a widget under each column, remove an empty column, add a column. */
+.column-edit, .column-add { display: none; }
+.editing .column-edit { order: 9999; display: flex; gap: 10px; }
+.column-edit button, .column-add {
+  display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 16px;
+  border: 2px dashed color-mix(in srgb, var(--text-secondary) 45%, transparent); border-radius: 18px; background: none;
+  color: var(--text-secondary); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.column-edit-add { flex: 1; }
+.column-edit-remove { flex: none; width: 52px; padding: 0; }
+.column-edit button svg, .column-add svg { flex: none; width: 22px; height: 22px; }
+.column-edit-remove:hover { color: #e0494a; border-color: #e0494a; }
+.column-edit-add:hover, .column-add:hover { color: var(--text-primary); border-color: var(--text-primary); }
+.editing .column-add { display: flex; flex: 0 0 160px; align-self: stretch; flex-direction: column; min-height: 160px; margin-right: auto; }
+.editing .board .column:nth-last-child(2) { margin-right: 0; }
+.dashboard-menu .dashboard-menu-action { color: var(--text-secondary); }
+.dashboard-menu button:not(.dashboard-menu-action) + .dashboard-menu-action { border-top: 2px solid var(--tile-border); }
+.dashboard-menu .dashboard-menu-action.is-danger { color: #e0494a; }
+.dashboard-menu .dashboard-menu-action.is-confirming { font-weight: 700; }
+dialog.edit-extra .ws-header { padding-right: 62px; }
+.edit-extra-confirm { display: block; width: 100%; margin-top: 18px; min-height: 48px; }

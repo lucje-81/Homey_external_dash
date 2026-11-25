@@ -5,6 +5,8 @@
 import { loadData } from './data.js';
 import { $, el, note } from './dom.js';
 import { addEditTools } from './edit-mode.js';
+import { addColumnButton, columnFooter } from './edit-extra.js';
+import { t } from './i18n.js';
 import { fitBoard } from './fit.js';
 import { state } from './state.js';
 import { WIDGETS, widgetTypeName } from './widgets/index.js';
@@ -113,7 +115,7 @@ export async function renderDashboard() {
   const dashboard = state.dashboards[state.dashboardId];
   if (dashboard == null) {
     $('dashboard-name').textContent = 'Homey';
-    note(board, 'No dashboards yet. Create one in the Homey mobile app.');
+    note(board, t('No dashboards yet. Create one with the name at the top (Homey → New Dashboard) or in the Homey app.'));
     fitBoard();
     return;
   }
@@ -130,12 +132,15 @@ export async function renderDashboard() {
   state.dataErrors = errors;
 
   drawnDashboardId = dashboard.id;
-  for (const column of columns) {
+  for (const [index, column] of columns.entries()) {
     const columnNode = el('div', 'column');
     board.append(columnNode);
     columnNodes.push(columnNode);
     for (const widget of column.widgets) drawWidget(dashboard.id, widget, columnNode, null);
+    // Shown in edit mode only (CSS); kept last in the column by CSS order, whatever is drawn after it.
+    columnNode.append(columnFooter(dashboard.id, index));
   }
+  board.append(addColumnButton(dashboard.id));
   fitBoard();
 }
 

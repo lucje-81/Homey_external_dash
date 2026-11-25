@@ -208,8 +208,10 @@ function appDevicePick(definition) {
   };
 }
 
-// name: what the widget is called on the board.
-export async function openWidgetSettings(dashboardId, widget, name) {
+// name: what the widget is called on the board. options.create = { column }: the widget is new (edit-extra.js) and is
+// added to that column when saved; closing without saving adds nothing.
+export async function openWidgetSettings(dashboardId, widget, name, options = {}) {
+  const creating = options.create != null;
   const isApp = widget.type === 'app_webview';
   let definition = null;
   if (isApp) {
@@ -236,7 +238,20 @@ export async function openWidgetSettings(dashboardId, widget, name) {
     // Other values a built-in widget keeps in its data (a note's colour), by key.
     data: {},
     mode: widgetMode(widget.id),
+    // A note's text (in its widget store, not in the dashboard): null until loaded.
+    noteText: null,
   };
+  // The note's store key isn't documented: keep the one it uses (widgets/note.js reads the first string), else 'text'.
+  let noteStore = { key: 'text', text: '' };
+  if (widget.type === 'note') {
+    const stored = creating ? null : await state.client.api('GET', `/api/manager/dashboards/widgetstore/${encodeURIComponent(widget.id)}/state`).catch(() => null);
+    if (stored && typeof stored === 'object') {
+      const key = ['text', 'content', 'value', 'note'].find((candidate) => typeof stored[candidate] === 'string')
+        ?? Object.keys(stored).find((candidate) => typeof stored[candidate] === 'string');
+      if (key) noteStore = { key, text: stored[key] };
+    }
+    draft.noteText = noteStore.text;
+  }
   // A setting's value: what was chosen, else the app's default.
   const valueOf = (setting) => (setting.id in draft.settings ? draft.settings[setting.id] : (setting.value ?? null));
   const allSettings = () => Object.fromEntries((definition?.settings ?? []).map((setting) => [setting.id, valueOf(setting)]));
@@ -474,14 +489,25 @@ export async function openWidgetSettings(dashboardId, widget, name) {
     } else if (widget.type in TITLE_ONLY) {
       hint(root, TITLE_ONLY[widget.type]);
     } else if (widget.type === 'note') {
-      hint(root, 'Its text is written in the Homey app.');
+      // Its text is edited below.
     } else if (widget.type === 'insights_chart_line' || isTimeline) {
       // All its settings are here.
     } else if (!isApp && (builtIn == null || builtIn.more)) {
       hint(root, "This widget's other settings can be changed in the Homey app.");
     }
     if (pick) renderPicks(section(root, pick.single ? pick.one : pick.many));
-    if (widget.type === 'note') renderNoteColors(section(root, 'Color'));
+    if (widget.type === 'note') {
+      const group = section(root, 'Text');
+      const input = el('textarea', 'ws-input ws-note-text');
+      input.value = draft.noteText ?? '';
+      input.rows = 4;
+      input.setAttribute('aria-label', 'Text');
+      input.addEventListener('input', () => {
+        draft.noteText = input.value;
+      });
+      group.append(input);
+      renderNoteColors(section(root, 'Color'));
+    }
     if (widget.type === 'insights_chart_line') renderChart(root);
     if (isTimeline) renderTimeline(section(root));
     if (definition?.settings?.length) {
@@ -1001,8 +1027,12 @@ export async function openWidgetSettings(dashboardId, widget, name) {
     const modeChanged = draft.mode !== widgetMode(widget.id);
     action.disabled = true;
     try {
-      if (titleChanged || changed.length > 0 || picksChanged || dataChanged.length > 0) {
+      if (creating || titleChanged || changed.length > 0 || picksChanged || dataChanged.length > 0) {
         await updateDashboard(dashboardId, (columns) => {
+          if (creating) {
+            if (columns.length === 0) throw new Error('This dashboard has no columns.');
+            columns[Math.min(options.create.column, columns.length - 1)].widgets.push(structuredClone(widget));
+          }
           const target = locateWidget(columns, widget.id).widget;
           target.titleHidden = draft.titleHidden;
           if (title !== (widget.title ?? '')) {
@@ -1025,6 +1055,11 @@ export async function openWidgetSettings(dashboardId, widget, name) {
           }
         });
       }
+      if (widget.type === 'note' && draft.noteText != null && draft.noteText !== noteStore.text) {
+        await state.client.api('POST', `/api/manager/dashboards/widgetstore/${encodeURIComponent(widget.id)}/state`, {
+          state: { [noteStore.key]: draft.noteText },
+        });
+      }
       if (modeChanged) await saveWidgetMode(widget.id, draft.mode);
       dialog.close();
     } catch (error) {
@@ -1035,6 +1070,6 @@ export async function openWidgetSettings(dashboardId, widget, name) {
   };
 
   document.body.append(dialog);
-  open({ title: draft.title || automaticTitle, action: save, actionLabel: 'Save', render: renderMain });
+  open({ title: draft.title || automaticTitle, action: save, actionLabel: creating ? 'Add' : 'Save', render: renderMain });
   dialog.showModal();
 }

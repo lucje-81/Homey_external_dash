@@ -3,6 +3,8 @@
 import { APP_ID, loadConfig, servedByHomey, writeStoredConfig } from './config.js';
 import { isSaving, loadKeyScopes } from './dashboard-save.js';
 import { initEditMode } from './edit-mode.js';
+import { dashboardMenuItems } from './edit-extra.js';
+import { canEditDashboards } from './dashboard-save.js';
 import { initFit, isFit, setFit } from './fit.js';
 import { $, darkQuery, el } from './dom.js';
 import { DASHBOARD_ICON } from './icons.js';
@@ -32,8 +34,8 @@ function populateDashboardMenu() {
       showDashboard(dashboard.id);
     });
     return item;
-  }));
-  $('dashboard-switch').toggleAttribute('data-single', dashboards.length < 2);
+  }), ...dashboardMenuItems(() => toggleDashboardMenu(false), showDashboard));
+  $('dashboard-switch').toggleAttribute('data-single', dashboards.length < 2 && !canEditDashboards());
 }
 
 function toggleDashboardMenu(open = $('dashboard-menu').hidden) {
@@ -283,7 +285,7 @@ function showDashboard(id) {
 }
 
 $('dashboard-switch').addEventListener('click', () => {
-  if (isKiosk() || Object.keys(state.dashboards).length < 2) return;
+  if (isKiosk() || (Object.keys(state.dashboards).length < 2 && !canEditDashboards())) return;
   toggleDashboardMenu();
 });
 document.addEventListener('click', (event) => {

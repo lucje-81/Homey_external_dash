@@ -14,6 +14,12 @@ const SUN_RAYS = '<path d="M12 2v2.2M12 19.8V22M2 12h2.2M19.8 12H22M4.9 4.9l1.6 
 
 export const CONTROL_ICONS = {
   tabs: {
+    // Our own drawings for the tabs Web Dashboard 1.4.1 had not drawn yet.
+    picker: svg('<path d="M4 6.5h11M4 12h11M4 17.5h11"/><path d="m17.5 11 1.5 1.5 3-3"/>'),
+    button: svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/>'),
+    sensor: svg('<path d="M4.6 17.5a8.5 8.5 0 1 1 14.8 0"/><path d="m12 14 3.5-4.5"/><circle cx="12" cy="14" r="1.2" fill="#000"/>'),
+    battery: svg('<rect x="3" y="7.5" width="16" height="9" rx="2"/><path d="M21 10.5v3"/><rect x="5.5" y="10" width="7" height="4" rx=".6" fill="#000" stroke="none"/>'),
+    media: svg('<path d="M9.5 17.5V5.5l10-2v12"/><circle cx="7" cy="17.5" r="2.5"/><circle cx="17" cy="15.5" r="2.5"/>'),
     // LICENSING: stand-in for the web app's "capabilityTab.onOff" tab icon.
     toggle: svg('<rect x="2.5" y="7" width="19" height="10" rx="5"/><circle cx="7.5" cy="12" r="2.6" fill="#000"/>'),
     // LICENSING: stand-in for the web app's "capabilityTab.slider" tab icon.
