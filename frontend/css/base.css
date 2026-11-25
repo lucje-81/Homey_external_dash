@@ -203,7 +203,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 /* Edit mode additions (js/edit-extra.js): add a widget under each column, remove an empty column, add a column. */
 .column-edit, .column-add { display: none; }
 .editing .column-edit { order: 9999; display: flex; gap: 10px; }
-.column-edit button, .column-add {
+.column-edit button, .editing .column-add {
   display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 16px;
   border: 2px dashed color-mix(in srgb, var(--text-secondary) 45%, transparent); border-radius: 18px; background: none;
   color: var(--text-secondary); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
@@ -212,7 +212,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .column-edit-remove { flex: none; width: 52px; padding: 0; }
 .column-edit button svg, .column-add svg { flex: none; width: 22px; height: 22px; }
 .column-edit-remove:hover { color: #e0494a; border-color: #e0494a; }
-.column-edit-add:hover, .column-add:hover { color: var(--text-primary); border-color: var(--text-primary); }
+.column-edit-add:hover, .editing .column-add:hover { color: var(--text-primary); border-color: var(--text-primary); }
 .editing .column-add { display: flex; flex: 0 0 160px; align-self: stretch; flex-direction: column; min-height: 160px; margin-right: auto; }
 .editing .board .column:nth-last-child(2) { margin-right: 0; }
 .dashboard-menu .dashboard-menu-action { color: var(--text-secondary); }

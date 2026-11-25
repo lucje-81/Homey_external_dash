@@ -1,6 +1,6 @@
 {
   "name": "homey-web-dashboard-proxy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Homey dashboards in a browser: Web Dashboard frontend behind a proxy that keeps the API key on the server",
   "license": "GPL-3.0-only",
